@@ -99,7 +99,7 @@ class Chem_Dataset(Dataset):
 		#print(self.data['path'])
 	
 	def __len__(self):
-		return len(self.data.columns)
+		return len(self.data.index)
 
 	def __getitem__(self, idx):
 		path = self.data.iloc[idx]['path'][:]
@@ -155,7 +155,7 @@ data_augs = transforms.Compose([
 
 full_dataset = Chem_Dataset(train_dir, train_labels, vocab, prefix, transform=data_augs)
 #consider num_workers= 4 or 8 for speed
-train_dataloader = DataLoader(full_dataset, batch_size=8, shuffle=True, num_workers=0, collate_fn=collate_fn)
+train_dataloader = DataLoader(full_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=collate_fn)
 
 print("loaders created")
 
