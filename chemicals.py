@@ -69,16 +69,20 @@ class Dict:
 				else:
 					print("NEW SYMBOL FOUND")
 					print(temp[0])
+					print(input)
 					self.add_single(temp[0])
 					temp = temp[1:]
+					return False
 			elif temp[0] in self.vocab.keys():
 				output.append(self.vocab[temp[0]])
 				temp = temp[1:]
 			else:
 				print("NEW SYMBOL FOUND")
 				print(temp[0])
+				print(input)
 				self.add_single(temp[0])
 				temp = temp[1:]
+				return False
 		return output
 
 	def decode(self, input):
@@ -131,20 +135,32 @@ train_labels = pandas.read_csv('../../train_labels.csv')
 #print(train_labels.iloc[2]['InChI'][len(prefix):])
 
 vocab = Dict()
-vocab.load_vocab(["c", "h", "b", "t", "m", "s", "i","N", "Br", "I", "S", "Cl", "H", "C", "P", "O", "Si", "F", "B","(",")",",","-","/","1","2","3","4","5","6","7","8","9","0","+"])
+vocab.load_vocab(
+	["c", "h", "b", "t", "m", "s", "i","N", "Br", "I",
+	 "S", "Cl", "H", "C", "P", "O", "Si", "F", "B","D",
+	 "T","(",")",",","-","/","1","2","3","4","5","6",
+	 "7","8","9","0","+"])
 
-print(len(vocab))
-print(train_labels.iloc()[1050]['image_id'])
-original = train_labels.iloc()[150]['InChI'][len(prefix):]
-print(original)
-encoded = vocab.encode(original)
-print(encoded)
-decoded = vocab.decode(encoded)
-print(decoded)
+check = True
+
+for i, row in train_labels.iterrows():
+	origin = row['InChI'][len(prefix):]
+	enc = vocab.encode(origin)
+	if enc:
+		dec = vocab.decode(enc)
+	else:
+		print(row['image_id'])
+	if not dec == origin:
+		check = False
+
 
 #not a sufficient test TODO: test for ever entry at least once
-if original == decoded:
+#Test completed and removed
+if check:
 	print("horray! it worked, your vocab encoding is good to go.")
+else:
+	print("Uh oh, we have a problem")
+	exit(1)
 
 data_augs = transforms.Compose([
 	transforms.Grayscale(),
