@@ -6,6 +6,7 @@ import random
 import os
 import csv
 import pandas
+from PIL import Image
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -23,6 +24,10 @@ else:
 	device = torch.device('cuda')
 
 prefix = "InChI=1S/"
+train_dir = '../../train'
+test_dir = '../../test'
+
+batch_size = 128
 
 class Dict:
 	def __init__(self):
@@ -54,12 +59,21 @@ class Dict:
 		output = []
 		temp = input
 		while len(temp) > 0:
-			if temp[0] in self.vocab.keys():
+			if len(temp) > 1:
+				if temp[0]+temp[1] in self.vocab.keys():
+					output.append(self.vocab[temp[:2]])
+					temp = temp[2:]
+				elif temp[0] in self.vocab.keys():
+					output.append(self.vocab[temp[0]])
+					temp = temp[1:]
+				else:
+					print("NEW SYMBOL FOUND")
+					print(temp[0])
+					self.add_single(temp[0])
+					temp = temp[1:]
+			elif temp[0] in self.vocab.keys():
 				output.append(self.vocab[temp[0]])
 				temp = temp[1:]
-			elif temp[0]+temp[1] in self.vocab.keys():
-				output.append(self.vocab[temp[:2]])
-				temp = temp[2:]
 			else:
 				print("NEW SYMBOL FOUND")
 				print(temp[0])
@@ -72,7 +86,45 @@ class Dict:
 		for sybmol in input:
 			output += self.map[sybmol]
 		return output
-		
+
+class Chem_Dataset(Dataset):
+	def __init__(self, root_dir, labels, vocab, prefix, transform=None):
+		self.root_dir = root_dir
+		self.prefix = prefix
+		self.vocab = vocab
+		self.data = labels
+		self.transform = transform
+		#seems like vectorization wont give us a speedup here unforunately, if annoying store and load the database after paths are added
+		self.data['path'] = self.data.apply(lambda row: root_dir+'/'+row.image_id[0]+'/'+row.image_id[1]+'/'+row.image_id[2]+'/'+row.image_id+'.png', axis=1)
+		#print(self.data['path'])
+	
+	def __len__(self):
+		return len(self.data.columns)
+
+	def __getitem__(self, idx):
+		path = self.data.iloc[idx]['path'][:]
+		# consider Denoising
+		im = Image.open(path)
+		#orientation = random.choice([0,90,180,270])
+		#im = im.rotate(orientation, expand=True)
+		if( im.size[0] < im.size[1] ):
+			im.rotate(-90, expand=True)
+		#print(im.size)
+		if self.transform:
+			im = self.transform(im)
+		#im.show()
+		#print(self.data.iloc[idx]['InChI'][len(self.prefix):])
+		label = self.vocab.encode(self.data.iloc[idx]['InChI'][len(self.prefix):])
+		return im.float().to(device), torch.LongTensor(label).to(device), len(label)
+
+def collate_fn(batch):
+	X = [param[0] for param in batch]
+	Y = [param[1] for param in batch]
+	Y_lens = [param[2] for param in batch]
+	X = torch.stack(X, dim=0)
+	Y = torch.nn.utils.rnn.pad_sequence(Y, batch_first=True, padding_value=vocab.vocab['<pad>'])
+	return X, Y, Y_lens
+
 
 
 train_labels = pandas.read_csv('../../train_labels.csv')
@@ -80,14 +132,36 @@ train_labels = pandas.read_csv('../../train_labels.csv')
 
 vocab = Dict()
 vocab.load_vocab(["c", "h", "b", "t", "m", "s", "i","N", "Br", "I", "S", "Cl", "H", "C", "P", "O", "Si", "F", "B","(",")",",","-","/","1","2","3","4","5","6","7","8","9","0","+"])
+
 print(len(vocab))
-original = train_labels.iloc()[50]['InChI'][len(prefix):]
+print(train_labels.iloc()[1050]['image_id'])
+original = train_labels.iloc()[150]['InChI'][len(prefix):]
 print(original)
 encoded = vocab.encode(original)
 print(encoded)
 decoded = vocab.decode(encoded)
 print(decoded)
 
+#not a sufficient test TODO: test for ever entry at least once
 if original == decoded:
-	print("horray! it worked")
+	print("horray! it worked, your vocab encoding is good to go.")
 
+data_augs = transforms.Compose([
+	transforms.Grayscale(),
+	transforms.Resize((512,1024)),
+	#transforms.RandomRotation(5),
+	transforms.ToTensor(),
+])
+
+full_dataset = Chem_Dataset(train_dir, train_labels, vocab, prefix, transform=data_augs)
+#consider num_workers= 4 or 8 for speed
+train_dataloader = DataLoader(full_dataset, batch_size=8, shuffle=True, num_workers=0, collate_fn=collate_fn)
+
+print("loaders created")
+
+for i, batched in enumerate(train_dataloader):
+	data, labels, label_lens = batched
+	print(data.shape)
+	print(labels.shape)
+	print(label_lens)
+	break
