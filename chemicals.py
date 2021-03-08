@@ -143,24 +143,6 @@ vocab.load_vocab(
 
 check = True
 
-for i, row in train_labels.iterrows():
-	origin = row['InChI'][len(prefix):]
-	enc = vocab.encode(origin)
-	if enc:
-		dec = vocab.decode(enc)
-	else:
-		print(row['image_id'])
-	if not dec == origin:
-		check = False
-
-
-#not a sufficient test TODO: test for ever entry at least once
-#Test completed and removed
-if check:
-	print("horray! it worked, your vocab encoding is good to go.")
-else:
-	print("Uh oh, we have a problem")
-	exit(1)
 
 data_augs = transforms.Compose([
 	transforms.Grayscale(),
