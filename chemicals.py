@@ -85,11 +85,14 @@ class Dict:
 				self.add_single(temp[0])
 				temp = temp[1:]
 				return False
+		output.append(self.vocab['<eos>'])
 		return output
 
 	def decode(self, input):
 		output=""
 		for sybmol in input:
+			if sybmol = self.vocab['<eos>']:
+				break
 			output += self.map[sybmol]
 		return output
 
