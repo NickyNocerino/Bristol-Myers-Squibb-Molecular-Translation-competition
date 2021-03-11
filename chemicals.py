@@ -14,6 +14,8 @@ from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 
+from CASmodel import ResNetEncoder
+
 from Levenshtein import distance as lev_dist
 
 if not torch.cuda.is_available():
@@ -27,7 +29,7 @@ prefix = "InChI=1S/"
 train_dir = '../../train'
 test_dir = '../../test'
 
-batch_size = 128
+batch_size = 16
 
 class Dict:
 	def __init__(self):
@@ -119,7 +121,7 @@ class Chem_Dataset(Dataset):
 		#im.show()
 		#print(self.data.iloc[idx]['InChI'][len(self.prefix):])
 		label = self.vocab.encode(self.data.iloc[idx]['InChI'][len(self.prefix):])
-		return im.float().to(device), torch.LongTensor(label).to(device), len(label)
+		return im.float(), torch.LongTensor(label), len(label)
 
 def collate_fn(batch):
 	X = [param[0] for param in batch]
@@ -146,7 +148,8 @@ check = True
 
 data_augs = transforms.Compose([
 	transforms.Grayscale(),
-	transforms.Resize((512,1024)),
+	#transforms.Resize((512,1024)),
+	transforms.Resize((224,224)),
 	#transforms.RandomRotation(5),
 	transforms.ToTensor(),
 ])
@@ -156,10 +159,11 @@ full_dataset = Chem_Dataset(train_dir, train_labels, vocab, prefix, transform=da
 train_dataloader = DataLoader(full_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=collate_fn)
 
 print("loaders created")
+encoder = ResNetEncoder(512,1024).to(device)
 
 for i, batched in enumerate(train_dataloader):
 	data, labels, label_lens = batched
 	print(data.shape)
-	print(labels.shape)
-	print(label_lens)
+	keys, vals = encoder(data.to(device))
+	print(keys.shape)
 	break
