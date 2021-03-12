@@ -62,7 +62,7 @@ class Dict:
 			self.add_single(char)
 
 	def encode(self, input):
-		output = []
+		output = [self.vocab['<sos>']]
 		temp = input
 		while len(temp) > 0:
 			if len(temp) > 1:
@@ -180,7 +180,7 @@ criterion =  nn.CrossEntropyLoss( ignore_index=vocab.vocab['<pad>'])
 print("model initialized")
 
 if pre_train:
-	pre_train_epochs = 20
+	pre_train_epochs = 5
 	print("Beggining model pre-training")
 	for e in range(pre_train_epochs):
 		epoch_loss = 0
@@ -217,9 +217,9 @@ if pre_train:
 		#pred3 = model(None, None, vocab=vocab, isTrain=False)
 		#print(vocab.clean_encode_to_readable(pred3[0]))
 		#print(vocab.clean_encode_to_readable(labels[0][1:]))
-	torch.save(model.state_dict(), '../../models/pre_trained.model')
+	torch.save(model.state_dict(), 'pre_trained.model')
 
 else:
 	#load the model
 	print("Loading pre-trained model")
-	model.load_state_dict(torch.load('../../models/pre_trained.model'), strict=False)
+	model.load_state_dict(torch.load('pre_trained.model'), strict=False)
