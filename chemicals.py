@@ -6,6 +6,7 @@ import random
 import os
 import csv
 import pandas
+from tqdm import tqdm
 from PIL import Image
 import torch
 import torch.nn as nn
@@ -14,7 +15,7 @@ from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 
-from CASmodel import ResNetEncoder
+import CASmodel 
 
 from Levenshtein import distance as lev_dist
 
@@ -30,6 +31,9 @@ train_dir = '../../train'
 test_dir = '../../test'
 
 batch_size = 16
+pre_train = True
+
+#TODO move vocab and data set/loader to its own file
 
 class Dict:
 	def __init__(self):
@@ -90,10 +94,10 @@ class Dict:
 
 	def decode(self, input):
 		output=""
-		for sybmol in input:
-			if sybmol = self.vocab['<eos>']:
+		for symbol in input:
+			if symbol == self.vocab['<eos>']:
 				break
-			output += self.map[sybmol]
+			output += self.map[symbol]
 		return output
 
 class Chem_Dataset(Dataset):
@@ -146,6 +150,8 @@ vocab.load_vocab(
 	 "T","(",")",",","-","/","1","2","3","4","5","6",
 	 "7","8","9","0","+"])
 
+print("Vocab Defined")
+
 check = True
 
 
@@ -156,17 +162,64 @@ data_augs = transforms.Compose([
 	#transforms.RandomRotation(5),
 	transforms.ToTensor(),
 ])
-
 full_dataset = Chem_Dataset(train_dir, train_labels, vocab, prefix, transform=data_augs)
+val_size = int(len(full_dataset)*.1)
+train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [len(full_dataset) - val_size, val_size ])
 #consider num_workers= 4 or 8 for speed
-train_dataloader = DataLoader(full_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=collate_fn)
+train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=collate_fn)
+val_data_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=collate_fn)
+
 
 print("loaders created")
-encoder = ResNetEncoder(512,1024).to(device)
+model = CASmodel.Image2Seq(len(vocab), 256, isAttended=False)
+model.to(device)
 
-for i, batched in enumerate(train_dataloader):
-	data, labels, label_lens = batched
-	print(data.shape)
-	keys, vals = encoder(data.to(device))
-	print(keys.shape)
-	break
+optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-6)
+criterion =  nn.CrossEntropyLoss( ignore_index=vocab.vocab['<pad>'])
+
+print("model initialized")
+
+if pre_train:
+	pre_train_epochs = 20
+	print("Beggining model pre-training")
+	for e in range(pre_train_epochs):
+		epoch_loss = 0
+		model.train()
+		for i, batched in enumerate(tqdm(train_data_loader)):
+			data, labels, label_lens = batched
+			optimizer.zero_grad()
+			#print(labels.shape[0])
+			pred2 = model(None, None, text_input=labels.to(device))
+			loss = criterion(pred2[:,:-1,:].permute(0,2,1),labels[:,1:].to(device))
+			loss.backward()
+			torch.nn.utils.clip_grad_norm_(model.parameters(), 2)
+			optimizer.step()
+			epoch_loss+= loss.item()
+			#print("Epoch: "+str(e+1)+"- "+str(i/len(train_data_loader)*100)+"% "+"Loss: "+str(loss.item()), end="\r", flush=True)
+		model.eval()
+		tot_dist = 0
+		count = 0
+		for i, batched in enumerate(tqdm(val_data_loader)):
+			data, labels, label_lens = batched
+			pred2 = model(None, None, text_input=labels.to(device))
+			for j in range(pred2.shape[0]):
+				sent_a = vocab.decode(labels[j][1:])
+				#encode = pred2[j][:-1]
+				#print(encode.shape)
+				#encode = torch.argmax(encode, dim=1)
+				sent_b = vocab.decode(torch.argmax(pred2[j][:-1],dim=1))
+				tot_dist +=  lev_dist(sent_a,sent_b)
+				count += 1
+		print(sent_a)
+		print(sent_b)
+		print("Lev Dist: "+str(tot_dist/count))
+		#print("Epoch: " + str(e+1)+ " Lev Dist: "+str(tot_dist/count)+" Loss: "+ str(epoch_loss))
+		#pred3 = model(None, None, vocab=vocab, isTrain=False)
+		#print(vocab.clean_encode_to_readable(pred3[0]))
+		#print(vocab.clean_encode_to_readable(labels[0][1:]))
+	torch.save(model.state_dict(), '../../models/pre_trained.model')
+
+else:
+	#load the model
+	print("Loading pre-trained model")
+	model.load_state_dict(torch.load('../../models/pre_trained.model'), strict=False)
