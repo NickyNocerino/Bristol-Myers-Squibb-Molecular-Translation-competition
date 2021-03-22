@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 
@@ -30,7 +31,7 @@ prefix = "InChI=1S/"
 train_dir = '../../train'
 test_dir = '../../test'
 
-batch_size = 16
+batch_size = 128
 pre_train = True
 
 #TODO move vocab and data set/loader to its own file
@@ -157,8 +158,8 @@ check = True
 
 data_augs = transforms.Compose([
 	transforms.Grayscale(),
-	#transforms.Resize((512,1024)),
-	transforms.Resize((224,224)),
+	transforms.Resize((512,1024)),
+	#transforms.Resize((224,224)),
 	#transforms.RandomRotation(5),
 	transforms.ToTensor(),
 ])
@@ -174,13 +175,16 @@ print("loaders created")
 model = CASmodel.Image2Seq(len(vocab), 256, isAttended=False)
 model.to(device)
 
+#TODO Scheduler, lr decay .85-.95? 
 optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-6)
 criterion =  nn.CrossEntropyLoss( ignore_index=vocab.vocab['<pad>'])
+scheduler = StepLR(optimizer, step_size=1, gamma=0.89)
 
 print("model initialized")
 
 if pre_train:
-	pre_train_epochs = 5
+	model.load_state_dict(torch.load('../../models/pre_trained.model'), strict=False)
+	pre_train_epochs = 20
 	print("Beggining model pre-training")
 	for e in range(pre_train_epochs):
 		epoch_loss = 0
@@ -215,11 +219,65 @@ if pre_train:
 		print("Lev Dist: "+str(tot_dist/count))
 		#print("Epoch: " + str(e+1)+ " Lev Dist: "+str(tot_dist/count)+" Loss: "+ str(epoch_loss))
 		#pred3 = model(None, None, vocab=vocab, isTrain=False)
-		#print(vocab.clean_encode_to_readable(pred3[0]))
-		#print(vocab.clean_encode_to_readable(labels[0][1:]))
-	torch.save(model.state_dict(), 'pre_trained.model')
+		#print(vocab.decode(pred3[0]))
+		#print(vocab.decode(labels[0][1:]))
+		scheduler.step()
+		torch.save(model.state_dict(), '../../models/pre_trained.model')
 
 else:
 	#load the model
 	print("Loading pre-trained model")
-	model.load_state_dict(torch.load('pre_trained.model'), strict=False)
+	model.load_state_dict(torch.load('../../models/pre_trained.model'), strict=False)
+
+#train_data_loader = DataLoader(train_dataset, batch_size=int(batch_size/4), shuffle=True, num_workers=0, collate_fn=collate_fn)
+#val_data_loader = DataLoader(val_dataset, batch_size=int(batch_size/4), shuffle=True, num_workers=0, collate_fn=collate_fn)
+
+model.decoder.isAttended = True
+print("Begining full model training")
+tf=.1
+epochs = 10
+
+for e in range(epochs):
+	model.train()
+	epoch_loss = 0
+	for i, batched in enumerate(tqdm(train_data_loader)):
+		data, labels, label_lens = batched
+
+		optimizer.zero_grad()
+		pred2 = model(data.to(device), None, text_input=labels.to(device), tf=tf)
+		#print(pred2.shape)
+		#print(labels.shape)
+		loss = criterion(pred2[:,:-1,:].permute(0,2,1),labels[:,1:].to(device))
+		loss.backward()
+		torch.nn.utils.clip_grad_norm_(model.parameters(), 2)
+		optimizer.step()
+		epoch_loss+= loss.item()
+		#print("Epoch: "+str(e+1)+"- "+str(i/len(train_data_loader)*100)+"% "+"Loss: "+ str(loss.item()), end="\r", flush=True)
+	if e > 20:
+		tf += .005
+	model.eval()
+	tot_dist = 0
+	count = 0
+	for i, batched in enumerate(tqdm(val_data_loader)):
+		data, labels, label_lens = batched
+		pred2 = model(data.to(device), None, vocab=vocab, isTrain=False)
+		for j in range(pred2.shape[0]):
+			sent_a = vocab.decode(labels[j][1:])
+			sent_b = vocab.decode(pred2[j][:-1])
+			tot_dist +=  lev_dist(sent_a,sent_b)
+			count += 1
+	print(sent_a)
+	print(sent_b)
+	print("Epoch: " + str(e+1)+ " Lev Dist: "+str(tot_dist/count)+" Loss: "+ str(epoch_loss))
+
+	#pred3 = model(data.to(device), None, vocab=vocab, isTrain=False)
+	#print(pred3.shape)
+	#print(vocab.decode(pred3[0]))
+	#print(vocab.decode(labels[0][1:]))
+
+	torch.save(model.state_dict(), 'fully_trained.model')
+
+model.eval()
+
+print("generating submitions")
+

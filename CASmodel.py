@@ -22,7 +22,7 @@ class ResNetEncoder(nn.Module):
     def __init__(self, value_size=128, key_size=128):
         super(ResNetEncoder, self).__init__()
         #this is cheap i know,TODO: make this better in the future
-        self.pre = nn.Conv2d(1,3,(1,1),(1,1))
+        self.pre_net = nn.Conv2d(1,3,(66,132),(2,4))
         self.net = resnet50(pretrained=True)
         self.net = nn.Sequential(*list(self.net.children())[:-2])
         #self.net[0].in_channels = 1
@@ -34,7 +34,7 @@ class ResNetEncoder(nn.Module):
 
 
     def forward( self, x, transform=None):
-        x = self.pre(x)
+        x = self.pre_net(x)
         x = self.net(x)
         x = x.permute(0,2,3,1)
         x = x.view(x.size(0), -1, x.size(-1))
@@ -148,26 +148,29 @@ class Decoder(nn.Module):
 
 #Wrapper  model
 class Image2Seq(nn.Module):
-	'''
-	We train an end-to-end sequence to sequence model comprising of Encoder and Decoder.
-	This is simply a wrapper "model" for the encoder and decoder.
-	'''
-	def __init__(self,  vocab_size, hidden_dim, value_size=128, key_size=128, isAttended=False):
-		super(Image2Seq, self).__init__()
-		self.encoder = ResNetEncoder(value_size=128, key_size=128)
-		self.decoder = Decoder(vocab_size, hidden_dim, isAttended=isAttended)
+    '''
+    We train an end-to-end sequence to sequence model comprising of Encoder and Decoder.
+    This is simply a wrapper "model" for the encoder and decoder.
+    '''
+    def __init__(self,  vocab_size, hidden_dim, value_size=128, key_size=128, isAttended=False):
+        super(Image2Seq, self).__init__()
+        self.encoder = ResNetEncoder(value_size=128, key_size=128)
+        self.decoder = Decoder(vocab_size, hidden_dim, isAttended=isAttended)
 
-	def forward(self, speech_input, speech_len, batch_size=1,vocab=None, text_input=None, isTrain=True, tf=.1):
-		if self.decoder.isAttended:
-			key, value, lens = self.encoder(speech_input, speech_len)
-		else:
-			if isTrain:
-				batch_size=text_input.shape[0]
-			key = torch.zeros(batch_size, 1, 128).to(device)
-			value = None
-			lens = None
-		if (isTrain == True):
-			predictions = self.decoder(key, value, lens, text=text_input, tf=tf)
-		else:
-			predictions = self.decoder.generate(key, value, lens, vocab)
-		return predictions
+    #speech_len is a relic of when this was an Seq2Seq model, simply pass None for now
+    #TODO remove speech_len
+    def forward(self, speech_input, speech_len, batch_size=1,vocab=None, text_input=None, isTrain=True, tf=.1):
+        if self.decoder.isAttended:
+            key, value= self.encoder(speech_input)
+            lens = None
+        else:
+            if isTrain:
+                batch_size=text_input.shape[0]
+            key = torch.zeros(batch_size, 1, 128).to(device)
+            value = None
+            lens = None
+        if (isTrain == True):
+            predictions = self.decoder(key, value, lens, text=text_input, tf=tf)
+        else:
+            predictions = self.decoder.generate(key, value, lens, vocab)
+        return predictions
