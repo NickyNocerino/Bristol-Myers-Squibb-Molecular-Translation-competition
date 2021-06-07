@@ -31,8 +31,8 @@ prefix = "InChI=1S/"
 train_dir = '../../train'
 test_dir = '../../test'
 
-batch_size = 128
-pre_train = True
+batch_size = 32
+pre_train = False
 
 #TODO move vocab and data set/loader to its own file
 
@@ -235,7 +235,7 @@ else:
 model.decoder.isAttended = True
 print("Begining full model training")
 tf=.1
-epochs = 10
+epochs = 20
 
 for e in range(epochs):
 	model.train()
@@ -276,6 +276,7 @@ for e in range(epochs):
 	#print(vocab.decode(labels[0][1:]))
 
 	torch.save(model.state_dict(), 'fully_trained.model')
+	scheduler.step()
 
 model.eval()
 
